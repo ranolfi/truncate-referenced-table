@@ -18,14 +18,18 @@ DECLARE @ColumnName varchar(80)
 DECLARE @ReferencedTableName varchar(80)
 DECLARE @ReferencedColumnName varchar(80)
 DECLARE @ConstraintName varchar(250)
+DECLARE @IsDisabled int
 
 DECLARE @CreateStatement varchar(max)
+DECLARE @AlterStatement varchar(max)
 DECLARE @DropStatement varchar(max)   
 DECLARE @TruncateStatement varchar(max)
 DECLARE @CreateStatementTemp varchar(max)
+DECLARE @AlterStatementTemp varchar(max)
 DECLARE @DropStatementTemp varchar(max)
 DECLARE @TruncateStatementTemp varchar(max)
 DECLARE @Statement varchar(max)
+DECLARE @Alter varchar(max)
 
         -- 1 = Will not execute statements 
  SET @Debug = 0
@@ -37,6 +41,7 @@ DECLARE @Statement varchar(max)
 
  SET @i = 1
     SET @CreateStatement = 'ALTER TABLE [dbo].[<tablename>]  WITH NOCHECK ADD  CONSTRAINT [<constraintname>] FOREIGN KEY([<column>]) REFERENCES [dbo].[<reftable>] ([<refcolumn>])'
+	SET @AlterStatement = 'ALTER TABLE [dbo].[<tablename>] NOCHECK CONSTRAINT <fk_constraint_name>'
     SET @DropStatement = 'ALTER TABLE [dbo].[<tablename>] DROP CONSTRAINT [<constraintname>]'
     SET @TruncateStatement = 'TRUNCATE TABLE [<tablename>]'
 
@@ -46,23 +51,26 @@ IF OBJECT_ID('tempdb..#FKs') IS NOT NULL
     DROP TABLE #FKs
 
 -- GET FKs
-SELECT ROW_NUMBER() OVER (ORDER BY OBJECT_NAME(parent_object_id), clm1.name) as ID,
-       OBJECT_NAME(constraint_object_id) as ConstraintName,
-       OBJECT_NAME(parent_object_id) as TableName,
+SELECT ROW_NUMBER() OVER (ORDER BY OBJECT_NAME(fkc.parent_object_id), clm1.name) as ID,
+       OBJECT_NAME(fkc.constraint_object_id) as ConstraintName,
+       OBJECT_NAME(fkc.parent_object_id) as TableName,
        clm1.name as ColumnName, 
-       OBJECT_NAME(referenced_object_id) as ReferencedTableName,
-       clm2.name as ReferencedColumnName
+       OBJECT_NAME(fkc.referenced_object_id) as ReferencedTableName,
+       clm2.name as ReferencedColumnName,
+	   fk.is_disabled as IsDisabled
   INTO #FKs
-  FROM sys.foreign_key_columns fk
-       JOIN sys.columns clm1 
-         ON fk.parent_column_id = clm1.column_id 
-            AND fk.parent_object_id = clm1.object_id
+  FROM sys.foreign_key_columns fkc
+       JOIN sys.foreign_keys fk
+	     ON fkc.constraint_object_id = fk.object_id
+	   JOIN sys.columns clm1 
+         ON fkc.parent_column_id = clm1.column_id 
+            AND fkc.parent_object_id = clm1.object_id
        JOIN sys.columns clm2
-         ON fk.referenced_column_id = clm2.column_id 
-            AND fk.referenced_object_id= clm2.object_id
+         ON fkc.referenced_column_id = clm2.column_id 
+            AND fkc.referenced_object_id= clm2.object_id
  --WHERE OBJECT_NAME(parent_object_id) not in ('//tables that you do not wont to be truncated')
- WHERE OBJECT_NAME(referenced_object_id) = @TableToTruncate
- ORDER BY OBJECT_NAME(parent_object_id)
+ WHERE OBJECT_NAME(fkc.referenced_object_id) = @TableToTruncate
+ ORDER BY OBJECT_NAME(fkc.parent_object_id)
 
 
 -- Prepare Storage Table
@@ -77,6 +85,7 @@ IF Not EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Intern
    ID int not null identity(1,1) primary key,
    FK_Name varchar(250) not null,
    FK_CreationStatement varchar(max) not null,
+   FK_AlterStatement varchar(max) not null,
    FK_DestructionStatement varchar(max) not null,
    Table_TruncationStatement varchar(max) not null
   ) 
@@ -110,13 +119,18 @@ IF @Recycle = 0
     SET @ColumnName = (SELECT ColumnName FROM #FKs WHERE ID = @i)
     SET @ReferencedTableName = (SELECT ReferencedTableName FROM #FKs WHERE ID = @i)
     SET @ReferencedColumnName = (SELECT ReferencedColumnName FROM #FKs WHERE ID = @i)
+	SET @IsDisabled = (SELECT IsDisabled FROM #FKs WHERE ID = @i)
 
     SET @DropStatementTemp = REPLACE(REPLACE(@DropStatement,'<tablename>',@TableName),'<constraintname>',@ConstraintName)
     SET @CreateStatementTemp = REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(@CreateStatement,'<tablename>',@TableName),'<column>',@ColumnName),'<constraintname>',@ConstraintName),'<reftable>',@ReferencedTableName),'<refcolumn>',@ReferencedColumnName)
-    SET @TruncateStatementTemp = REPLACE(@TruncateStatement,'<tablename>',@TableName) 
+	SET @AlterStatementTemp = CASE @IsDisabled
+	  WHEN 1 THEN REPLACE(REPLACE(@AlterStatement, '<tablename>', @TableName), '<fk_constraint_name>', @ConstraintName)
+	  ELSE ''
+	END
+	SET @TruncateStatementTemp = REPLACE(@TruncateStatement,'<tablename>',@TableName) 
 
     INSERT INTO [Internal_FK_Definition_Storage]
-                        SELECT @ConstraintName, @CreateStatementTemp, @DropStatementTemp, @TruncateStatementTemp
+                        SELECT @ConstraintName, @CreateStatementTemp, @AlterStatementTemp, @DropStatementTemp, @TruncateStatementTemp
 
     SET @i = @i + 1
 
@@ -196,17 +210,29 @@ IF @Recycle = 0
           BEGIN
              SET @ConstraintName = (SELECT FK_Name FROM [Internal_FK_Definition_Storage] WHERE ID = @i)
     SET @Statement = (SELECT FK_CreationStatement FROM [Internal_FK_Definition_Storage] WHERE ID = @i)
+	SET @Alter = (SELECT FK_AlterStatement FROM [Internal_FK_Definition_Storage] WHERE ID = @i)
 
     IF @Debug = 1 
        PRINT @Statement
     ELSE
        EXEC(@Statement)
 
-    SET @i = @i + 1
-
-
     IF @Verbose = 1
        PRINT '  > Re-creating [' + @ConstraintName + ']'
+
+	IF @Alter != ''
+	BEGIN
+		IF @Debug = 1
+			PRINT @Alter
+		ELSE
+			EXEC(@alter)
+
+		IF @Verbose = 1
+			PRINT '  > Disabling [' + @ConstraintName + ']'
+
+	END
+
+	SET @i = @i + 1
 
           END
 
