@@ -1,4 +1,4 @@
-CREATE PROCEDURE [dbo].[truncate_non_empty_table]
+CREATE PROCEDURE [dbo].[truncate_referenced_table]
 
   @TableToTruncate                 VARCHAR(64)
 
