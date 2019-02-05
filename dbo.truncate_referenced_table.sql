@@ -1,7 +1,9 @@
+-- -- 
 -- truncate_referenced_table - assists in truncating a table when you otherwise couldn't due to foreign references
+-- 
 -- Marc Ranolfi, 2019-02-05 <mranolfi@gmail.com>
 -- 
--- Based on work by Peter Szanto <https://stackoverflow.com/a/13249209/3258851> and denver_citizen <https://stackoverflow.com/a/3039404/3258851>
+-- Based on work by Peter Szanto <https://stackoverflow.com/a/13249209/3258851> and denver_citizen <https://stackoverflow.com/a/3039404/3258851>.
 -- Licensed under cc by-sa 3.0 with attribution required <https://stackoverflow.blog/2009/06/25/attribution-required>.
 -- 
 
