@@ -5,3 +5,5 @@ It is used as:
 `truncate_referenced_table 'tablename'`.
 
 Based on an answer by [Peter Szanto](https://stackoverflow.com/users/157591/peter-szanto) on StackOverflow: [Cannot truncate table because it is being referenced by a FOREIGN KEY constraint?](https://stackoverflow.com/a/13249209/3258851). With additional logic to preserve disabled FK status.
+
+See authors and license information included in the procedure code.
